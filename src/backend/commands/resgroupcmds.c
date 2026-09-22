@@ -1247,6 +1247,28 @@ freeResgroupAlterCallback(ResourceGroupCallbackContext *ctx)
 }
 
 /*
+ * Order a list of TblSpcIOLimit by tablespace so two lists that hold the same
+ * entries in a different order dump to the same string.
+ *
+ * Kept here rather than in cgroup_io_limit.c because that file is only built
+ * on Linux, while this comparison runs on every platform.
+ */
+static int
+compare_tablespace_oid(const void *x, const void *y)
+{
+	TblSpcIOLimit *a = (TblSpcIOLimit *) lfirst(*(ListCell **) x);
+	TblSpcIOLimit *b = (TblSpcIOLimit *) lfirst(*(ListCell **) y);
+
+	if (a->tablespace_oid == b->tablespace_oid)
+		return 0;
+
+	if (a->tablespace_oid < b->tablespace_oid)
+		return -1;
+
+	return 1;
+}
+
+/*
  * Compare two io_limit lists through their canonical catalog representation.
  *
  * dumpio walks each list in stored order, so the same entries listed in a
