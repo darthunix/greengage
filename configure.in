@@ -1143,10 +1143,27 @@ AC_SUBST(with_zstd)
 
 if test "$with_zstd" = yes; then
   dnl zstd_errors.h was renamed from error_public.h in v1.1.1
-  dnl require static zstd library to use custom allocation functions
-  PKG_CHECK_MODULES([ZSTD], [libzstd >= 1.4.0],
-                    [AC_CHECK_LIB([:libzstd.a], [ZSTD_compressCCtx], [],
-                                  [AC_MSG_ERROR([static zstd library not found])])])
+  PKG_CHECK_MODULES([ZSTD], [libzstd >= 1.4.0])
+  dnl require static zstd library to use custom allocation functions.
+  dnl "-l:libzstd.a" is a GNU ld extension; Apple's ld accepts only the full
+  dnl path to the archive, so take the library directory from pkg-config.
+  case $PORTNAME in
+    darwin)
+      zstd_libdir=`$PKG_CONFIG --variable=libdir libzstd 2>/dev/null`
+      zstd_static_lib="${zstd_libdir:-/usr/local/lib}/libzstd.a"
+      ;;
+    *)
+      zstd_static_lib="-l:libzstd.a"
+      ;;
+  esac
+  AC_MSG_CHECKING([for ZSTD_compressCCtx in $zstd_static_lib])
+  pgac_save_LIBS=$LIBS
+  LIBS="$zstd_static_lib $ZSTD_LIBS $LIBS"
+  AC_LINK_IFELSE([AC_LANG_CALL([], [ZSTD_compressCCtx])],
+                 [AC_MSG_RESULT([yes])
+                  LIBS="$zstd_static_lib $pgac_save_LIBS"],
+                 [AC_MSG_RESULT([no])
+                  AC_MSG_ERROR([static zstd library not found])])
 fi
 
 #
