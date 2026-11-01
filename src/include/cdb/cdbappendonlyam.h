@@ -485,7 +485,6 @@ extern void appendonly_rescan(TableScanDesc scan, ScanKey key,
 extern void appendonly_endscan(TableScanDesc scan);
 extern int appendonly_getnext_batch(TableScanDesc scan, TupleDesc tupdesc, int maxrows,
 									int nattrs, const AttrNumber *attnos,
-									Datum *rowvalues, bool *rownulls,
 									Datum **values, bool **isnull, uint64 *visible);
 extern bool appendonly_getnextslot(TableScanDesc scan,
 								   ScanDirection direction,

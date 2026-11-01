@@ -1619,12 +1619,12 @@ AppendOnlyExecutorReadBlock_NextTuple(AppendOnlyExecutorReadBlock *executorReadB
 /*
  * appendonly_getnext_batch
  *
- * The next rows of a forward scan without a tuple slot: each row's
- * attributes are deformed into rowvalues and rownulls, of the relation's
- * natts each, and the attributes attnos[0 .. nattrs - 1] (zero-based) go
- * to values[attno][row] and isnull[attno][row], arrays of maxrows rows,
- * at most 64. *visible gets a bit for each row the snapshot sees; the
- * rows without one were deleted, and their values are filled too.
+ * The next rows of a forward scan without a tuple slot: the attributes
+ * attnos[0 .. nattrs - 1] (zero-based) of each row go to
+ * values[attno][row] and isnull[attno][row], arrays of maxrows rows, at
+ * most 64; a memtuple gives any attribute at once, so the others are not
+ * read. *visible gets a bit for each row the snapshot sees; the rows
+ * without one were deleted, and their values are filled too.
  *
  * A batch ends with its block, so that a by-reference value points into
  * the block, which stays as it is until the next call, a rescan or the end
@@ -1634,7 +1634,6 @@ AppendOnlyExecutorReadBlock_NextTuple(AppendOnlyExecutorReadBlock *executorReadB
 int
 appendonly_getnext_batch(TableScanDesc sscan, TupleDesc tupdesc, int maxrows,
 						 int nattrs, const AttrNumber *attnos,
-						 Datum *rowvalues, bool *rownulls,
 						 Datum **values, bool **isnull, uint64 *visible)
 {
 	AppendOnlyScanDesc scan = (AppendOnlyScanDesc) sscan;
@@ -1649,6 +1648,8 @@ appendonly_getnext_batch(TableScanDesc sscan, TupleDesc tupdesc, int maxrows,
 	for (;;)
 	{
 		int			nrows = 0;
+		int			nvisible;
+		int64		rownums[64];
 
 		if (scan->needNextBuffer)
 		{
@@ -1661,36 +1662,60 @@ appendonly_getnext_batch(TableScanDesc sscan, TupleDesc tupdesc, int maxrows,
 			scan->needNextBuffer = false;
 		}
 
-		*visible = 0;
 		while (nrows < maxrows)
 		{
 			MemTuple	tuple;
-			int64		rowNum;
-			AOTupleId	aoTupleId;
+			MemTupleBinding *bind;
 
-			if (!AppendOnlyExecutorReadBlock_NextTuple(executorReadBlock, &tuple, &rowNum))
+			if (!AppendOnlyExecutorReadBlock_NextTuple(executorReadBlock, &tuple,
+													   &rownums[nrows]))
 			{
 				/* no more items in the varblock, get new buffer */
 				scan->needNextBuffer = true;
 				break;
 			}
-			AppendOnlyExecutorReadBlock_BindingInit(executorReadBlock, tupdesc, rowNum);
-			memtuple_deform(tuple, executorReadBlock->mt_bind, rowvalues, rownulls);
+			AppendOnlyExecutorReadBlock_BindingInit(executorReadBlock, tupdesc,
+													rownums[nrows]);
+			bind = executorReadBlock->mt_bind;
 			for (int i = 0; i < nattrs; i++)
 			{
-				values[attnos[i]][nrows] = rowvalues[attnos[i]];
-				isnull[attnos[i]][nrows] = rownulls[attnos[i]];
-			}
-			AOTupleIdInit(&aoTupleId, executorReadBlock->segmentFileNum, rowNum);
-			if (isSnapshotAny || AppendOnlyVisimap_IsVisible(&scan->visibilityMap, &aoTupleId))
-			{
-				*visible |= UINT64CONST(1) << nrows;
-				pgstat_count_heap_getnext(scan->aos_rd);
+				int			attno = attnos[i];
+
+				/* A row written before the attribute was added lacks it. */
+				if (attno < bind->natts)
+					values[attno][nrows] = memtuple_getattr(tuple, bind, attno + 1,
+															&isnull[attno][nrows]);
+				else
+					values[attno][nrows] = getmissingattr(tupdesc, attno + 1,
+														  &isnull[attno][nrows]);
 			}
 			nrows++;
 		}
-		if (nrows > 0)
-			return nrows;
+		if (nrows == 0)
+			continue;
+		*visible = nrows == 64 ? ~UINT64CONST(0) : (UINT64CONST(1) << nrows) - 1;
+		nvisible = nrows;
+		if (!isSnapshotAny &&
+			!AppendOnlyVisimap_AllVisible(&scan->visibilityMap,
+										  executorReadBlock->segmentFileNum,
+										  rownums[0], rownums[nrows - 1]))
+		{
+			for (int row = 0; row < nrows; row++)
+			{
+				AOTupleId	aoTupleId;
+
+				AOTupleIdInit(&aoTupleId, executorReadBlock->segmentFileNum, rownums[row]);
+				if (!AppendOnlyVisimap_IsVisible(&scan->visibilityMap, &aoTupleId))
+				{
+					*visible &= ~(UINT64CONST(1) << row);
+					nvisible--;
+				}
+			}
+		}
+		/* As appendonly_getnextslot counts the rows it returns. */
+		if (scan->aos_rd->pgstat_info != NULL)
+			scan->aos_rd->pgstat_info->t_counts.t_tuples_returned += nvisible;
+		return nrows;
 	}
 }
 
