@@ -1526,6 +1526,203 @@ ReadNext:
 	return false;
 }
 
+/* Rows of a column's current block not read yet. */
+static inline int
+aocs_rows_left_in_block(DatumStreamRead *ds)
+{
+	if (ds->largeObjectState == DatumStreamLargeObjectState_None)
+		return Max(ds->blockRead.logical_row_count - (ds->blockRead.nth + 1), 0);
+	/* A large value fills its blocks alone: one row, until read. */
+	return ds->largeObjectState == DatumStreamLargeObjectState_HaveAoContent ? 1 : 0;
+}
+
+/*
+ * Make a column's current block hold a row not read yet, reading its next
+ * block when the current one is done, as aocs_getnext does. False when the
+ * segment file has no more blocks of the column.
+ */
+static bool
+aocs_column_has_row(AOCSScanDesc scan, AttrNumber attno)
+{
+	DatumStreamRead *ds = scan->columnScanInfo.ds[attno];
+	int			err;
+
+	if (aocs_rows_left_in_block(ds) > 0)
+		return true;
+	err = datumstreamread_advance(ds);
+	Assert(err == 0);
+	err = datumstreamread_block(ds, scan->blockDirectory, attno);
+	if (err < 0)
+		return false;
+	AOCSScanDesc_UpdateTotalBytesRead(scan, attno);
+	pgstat_count_buffer_read_ao(scan->rs_base.rs_rd,
+								RelationGuessNumberOfBlocksFromSize(scan->totalBytesRead));
+	Assert(aocs_rows_left_in_block(ds) > 0);
+	return true;
+}
+
+/*
+ * aocs_getnext_batch
+ *
+ * The next rows of a forward scan column by column, without a tuple slot:
+ * for each projected attribute attno (zero-based), values[attno][row] and
+ * isnull[attno][row]. The caller allocates the arrays of every attribute
+ * the scan may project (with AOCS_PROJ_ANY, any of them), maxrows rows
+ * each, at most 64. *visible gets a bit for each row the snapshot sees;
+ * the rows without one were deleted, and their values are filled too.
+ *
+ * A batch ends where the block of any projected column ends, and where a
+ * column added later starts to hold values of its own, so that a
+ * by-reference value points into its column's block, which stays as it is
+ * until the next call, a rescan or the end of the scan. tupdesc is the
+ * relation's descriptor, which gives the missing values of such a column.
+ * Returns the number of rows, 0 at the end of the scan.
+ */
+int
+aocs_getnext_batch(AOCSScanDesc scan, TupleDesc tupdesc, int maxrows,
+				   Datum **values, bool **isnull, uint64 *visible)
+{
+	bool		isSnapshotAny = (scan->rs_base.rs_snapshot == SnapshotAny);
+	bool		open_next;
+
+	Assert(maxrows > 0 && maxrows <= 64);
+	Assert((scan->rs_base.rs_flags & SO_TYPE_ANALYZE) == 0);
+	Assert((scan->rs_base.rs_flags & SO_TYPE_SAMPLESCAN) == 0);
+
+	if (scan->columnScanInfo.relationTupleDesc == NULL)
+	{
+		scan->columnScanInfo.relationTupleDesc = tupdesc;
+		/* Pin it! ... and of course release it upon destruction / rescan */
+		PinTupleDesc(scan->columnScanInfo.relationTupleDesc);
+		initscan_with_colinfo(scan);
+	}
+	if (scan->columnScanInfo.num_proj_atts == 0)
+		return 0;
+
+	/*
+	 * As in aocs_getnext, a closed segment keeps its number in cur_seg until
+	 * open_next_scan_seg moves past it.
+	 */
+	open_next = scan->cur_seg < 0;
+	for (;;)
+	{
+		AttrNumber	anchor = scan->columnScanInfo.proj_atts[ANCHOR_COL_IN_PROJ];
+		DatumStreamRead *anchor_ds;
+		AOCSFileSegInfo *curseginfo;
+		bool		missing[MaxHeapAttributeNumber];
+		int64		first_row;
+		int			nrows = maxrows;
+		bool		segment_done = false;
+
+		if (open_next)
+		{
+			if (open_next_scan_seg(scan) < 0)
+			{
+				scan->cur_seg = -1;
+				return 0;
+			}
+			scan->segrowsprocessed = 0;
+			open_next = false;
+		}
+		curseginfo = scan->seginfo[scan->cur_seg];
+
+		/* The anchor column gives the rows' numbers; the others follow it. */
+		anchor_ds = scan->columnScanInfo.ds[anchor];
+		if (!aocs_column_has_row(scan, anchor))
+		{
+			close_cur_scan_seg(scan);
+			open_next = true;
+			continue;
+		}
+		/* A large value, alone in its blocks, is its block's first row. */
+		if (anchor_ds->blockFirstRowNum != InvalidAORowNum)
+			first_row = anchor_ds->blockFirstRowNum +
+				(anchor_ds->largeObjectState == DatumStreamLargeObjectState_None ?
+				 anchor_ds->blockRead.nth + 1 : 0);
+		else
+			first_row = scan->segrowsprocessed + 1;
+		nrows = Min(nrows, aocs_rows_left_in_block(anchor_ds));
+
+		for (AttrNumber i = 0; i < scan->columnScanInfo.num_proj_atts; i++)
+		{
+			AttrNumber	attno = scan->columnScanInfo.proj_atts[i];
+			int64		last_missing;
+
+			missing[attno] = false;
+			if (attno == anchor)
+				continue;
+			/* A column added later has no values of rows up to last_missing. */
+			last_missing = scan->columnScanInfo.attnum_to_rownum[attno * MAX_AOREL_CONCURRENCY +
+																 curseginfo->segno];
+			if (anchor_ds->blockFirstRowNum != InvalidAORowNum &&
+				first_row <= last_missing)
+			{
+				missing[attno] = true;
+				nrows = (int) Min((int64) nrows, last_missing - first_row + 1);
+				continue;
+			}
+			if (!aocs_column_has_row(scan, attno))
+			{
+				segment_done = true;
+				break;
+			}
+			nrows = Min(nrows, aocs_rows_left_in_block(scan->columnScanInfo.ds[attno]));
+		}
+		if (segment_done)
+		{
+			/* Ha, cannot read next block, we need to go to next seg */
+			close_cur_scan_seg(scan);
+			open_next = true;
+			continue;
+		}
+		Assert(nrows > 0);
+		for (AttrNumber i = 0; i < scan->columnScanInfo.num_proj_atts; i++)
+		{
+			AttrNumber	attno = scan->columnScanInfo.proj_atts[i];
+			Datum	   *d = values[attno];
+			bool	   *null = isnull[attno];
+
+			if (missing[attno])
+			{
+				Datum		value;
+				bool		value_null;
+
+				value = getmissingattr(tupdesc, attno + 1, &value_null);
+				for (int row = 0; row < nrows; row++)
+				{
+					d[row] = value;
+					null[row] = value_null;
+				}
+				continue;
+			}
+			for (int row = 0; row < nrows; row++)
+			{
+				DatumStreamRead *ds = scan->columnScanInfo.ds[attno];
+				int			err PG_USED_FOR_ASSERTS_ONLY;
+
+				err = datumstreamread_advance(ds);
+				Assert(err > 0);
+				datumstreamread_get(ds, &d[row], &null[row]);
+			}
+		}
+
+		*visible = nrows == 64 ? ~UINT64CONST(0) : (UINT64CONST(1) << nrows) - 1;
+		if (!isSnapshotAny)
+		{
+			for (int row = 0; row < nrows; row++)
+			{
+				AOTupleId	aoTupleId;
+
+				AOTupleIdInit(&aoTupleId, curseginfo->segno, first_row + row);
+				if (!AppendOnlyVisimap_IsVisible(&scan->visibilityMap, &aoTupleId))
+					*visible &= ~(UINT64CONST(1) << row);
+			}
+		}
+		scan->segrowsprocessed += nrows;
+		return nrows;
+	}
+}
+
 
 /* Open next file segment for write.  See SetCurrentFileSegForWrite */
 /* XXX Right now, we put each column to different files */
