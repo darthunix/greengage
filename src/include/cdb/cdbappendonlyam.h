@@ -486,6 +486,8 @@ extern void appendonly_endscan(TableScanDesc scan);
 extern int appendonly_getnext_batch(TableScanDesc scan, TupleDesc tupdesc, int maxrows,
 									int nattrs, const AttrNumber *attnos,
 									Datum **values, bool **isnull, uint64 *visible);
+/* appendonly_getnext_batch exists, for extensions that test for it. */
+#define APPENDONLY_HAS_GETNEXT_BATCH 1
 extern bool appendonly_getnextslot(TableScanDesc scan,
 								   ScanDirection direction,
 								   TupleTableSlot *slot);

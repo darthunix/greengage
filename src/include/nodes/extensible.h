@@ -92,6 +92,15 @@ extern const ExtensibleNodeMethods *GetExtensibleNodeMethods(const char *name,
 #define CUSTOMPATH_GP_LAST_CHILD_FIRST		0x00010000
 
 /*
+ * Greengage: a custom scan's children are visited as any plan's are: the
+ * plan walkers and mutators, the slice table, squelch and the walks of
+ * plan states go into custom_plans and custom_ps, and a custom scan does
+ * not stop targeted dispatch from looking past it. An extension whose
+ * custom scans have children of their own needs these.
+ */
+#define CUSTOMSCAN_GP_CHILDREN 1
+
+/*
  * Custom path methods.  Mostly, we just need to know how to convert a
  * CustomPath to a plan.
  */

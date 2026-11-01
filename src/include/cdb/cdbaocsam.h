@@ -429,6 +429,8 @@ extern void aocs_endscan(AOCSScanDesc scan);
 extern bool aocs_getnext(AOCSScanDesc scan, ScanDirection direction, TupleTableSlot *slot);
 extern int aocs_getnext_batch(AOCSScanDesc scan, TupleDesc tupdesc, int maxrows,
 							  Datum **values, bool **isnull, uint64 *visible);
+/* aocs_getnext_batch exists, for extensions that test for it. */
+#define AOCS_HAS_GETNEXT_BATCH 1
 extern AOCSInsertDesc aocs_insert_init(Relation rel, int segno, int64 num_rows);
 extern void aocs_insert_values(AOCSInsertDesc idesc, Datum *d, bool *null, AOTupleId *aoTupleId);
 static inline void aocs_insert(AOCSInsertDesc idesc, TupleTableSlot *slot)
