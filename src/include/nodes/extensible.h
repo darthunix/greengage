@@ -80,6 +80,7 @@ extern const ExtensibleNodeMethods *GetExtensibleNodeMethods(const char *name,
  */
 #define CUSTOMPATH_SUPPORT_BACKWARD_SCAN	0x0001
 #define CUSTOMPATH_SUPPORT_MARK_RESTORE		0x0002
+#define CUSTOMPATH_SUPPORT_PROJECTION		0x0004
 
 /*
  * Greengage: the scan executes its custom_plans from the last to the

@@ -8041,6 +8041,10 @@ is_projection_capable_path(Path *path)
 			 * get relaxed later.
 			 */
 			return false;
+		case T_CustomScan:
+			/* As in PostgreSQL 15: only when the provider says so. */
+			return (castNode(CustomPath, path)->flags &
+					CUSTOMPATH_SUPPORT_PROJECTION) != 0;
 		default:
 			break;
 	}
@@ -8082,6 +8086,10 @@ is_projection_capable_plan(Plan *plan)
 			 * get relaxed later.
 			 */
 			return false;
+		case T_CustomScan:
+			/* As in PostgreSQL 15: only when the provider says so. */
+			return (((CustomScan *) plan)->flags &
+					CUSTOMPATH_SUPPORT_PROJECTION) != 0;
 		default:
 			break;
 	}
