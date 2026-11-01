@@ -5354,7 +5354,8 @@ dispatch_sync_pg_variable_internal(struct config_generic * gconfig, bool is_expl
 		{
 			struct config_real *rguc = (struct config_real *) gconfig;
 
-			appendStringInfo(&buffer, "'%f'", *rguc->variable);
+			/* %.17g: a double read back is the same double. */
+			appendStringInfo(&buffer, "'%.17g'", *rguc->variable);
 			break;
 		}
 		case PGC_STRING:

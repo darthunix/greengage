@@ -335,9 +335,10 @@ addOneOption(StringInfo option, StringInfo diff, struct config_generic *guc)
 			{
 				struct config_real *rguc = (struct config_real *) guc;
 
-				appendStringInfo(option, " -c %s=%f", guc->name, rguc->reset_val);
+				/* %.17g: a double read back is the same double. */
+				appendStringInfo(option, " -c %s=%.17g", guc->name, rguc->reset_val);
 				if (rguc->reset_val != *rguc->variable)
-					appendStringInfo(diff, " %s=%f", guc->name, *rguc->variable);
+					appendStringInfo(diff, " %s=%.17g", guc->name, *rguc->variable);
 				break;
 			}
 		case PGC_STRING:
