@@ -15,6 +15,8 @@
 
 #include "postgres.h"
 
+#include "port/pg_bitutils.h"
+
 #include "common/relpath.h"
 #include "access/aocssegfiles.h"
 #include "access/aomd.h"
@@ -1718,6 +1720,9 @@ aocs_getnext_batch(AOCSScanDesc scan, TupleDesc tupdesc, int maxrows,
 					*visible &= ~(UINT64CONST(1) << row);
 			}
 		}
+		/* As aoco_getnextslot counts the rows it returns. */
+		for (int row = 0; row < pg_popcount64(*visible); row++)
+			pgstat_count_heap_getnext(scan->rs_base.rs_rd);
 		scan->segrowsprocessed += nrows;
 		return nrows;
 	}
