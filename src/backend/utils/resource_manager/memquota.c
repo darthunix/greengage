@@ -895,11 +895,29 @@ PolicyAutoFits(PlannedStmt *stmt, uint64 memAvailableBytes)
 	}
 }
 
+/*
+ * A memory hungry custom scan that eager free gave no memory gets a
+ * kilobyte: a share of none is read as no assignment at all, which gives
+ * work_mem (PlanStateOperatorMemKB), and the scan would fill that.
+ */
+static bool
+ClampCustomScanMemoryWalker(Node *node, CustomMemoryContext *context)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, CustomScan) &&
+		(((CustomScan *) node)->flags & CUSTOMPATH_GP_MEMORY_INTENSIVE) != 0 &&
+		((Plan *) node)->operatorMemKB == 0)
+		((Plan *) node)->operatorMemKB = 1;
+	return plan_tree_walker(node, ClampCustomScanMemoryWalker, context, true);
+}
+
 void
 PolicyEagerFreeAssignOperatorMemoryKB(PlannedStmt *stmt, uint64 memAvailableBytes)
 {
 	PolicyEagerFreeContext ctx;
 	CustomMemoryContext custom;
+	bool		custom_memory;
 
 	/*
 	 * Eager free lets the groups of operators that do not run at once reuse
@@ -912,8 +930,8 @@ PolicyEagerFreeAssignOperatorMemoryKB(PlannedStmt *stmt, uint64 memAvailableByte
 	 * policy refuses, eager free assigns it as before.
 	 */
 	exec_init_plan_tree_base(&custom.base, stmt);
-	if (HasMemoryIntensiveCustomScanWalker((Node *) stmt->planTree, &custom) &&
-		PolicyAutoFits(stmt, memAvailableBytes))
+	custom_memory = HasMemoryIntensiveCustomScanWalker((Node *) stmt->planTree, &custom);
+	if (custom_memory && PolicyAutoFits(stmt, memAvailableBytes))
 	{
 		PolicyAutoAssignOperatorMemoryKB(stmt, memAvailableBytes);
 		return;
@@ -956,6 +974,8 @@ PolicyEagerFreeAssignOperatorMemoryKB(PlannedStmt *stmt, uint64 memAvailableByte
 		PolicyEagerFreeAssignWalker((Node *) stmt->planTree, &ctx);
 
 	Assert(!result);
+	if (custom_memory)
+		(void) ClampCustomScanMemoryWalker((Node *) stmt->planTree, &custom);
 }
 
 /*
