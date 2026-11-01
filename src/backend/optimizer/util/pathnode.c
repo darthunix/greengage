@@ -4256,6 +4256,9 @@ create_projection_path_with_quals(PlannerInfo *root,
 	pathnode->path.pathkeys = subpath->pathkeys;
 	pathnode->path.locus = subpath->locus;
 	pathnode->path.sameslice_relids = subpath->sameslice_relids;
+	/* A Result streams its input: the Motion below stays a hazard. */
+	pathnode->path.motionHazard = subpath->motionHazard;
+	pathnode->path.rescannable = subpath->rescannable;
 
 	pathnode->subpath = subpath;
 
