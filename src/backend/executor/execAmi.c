@@ -757,6 +757,14 @@ ExecSquelchNode(PlanState *node)
 			ExecSquelchProjectSetNode((ProjectSetState *) node);
 			break;
 
+		case T_CustomScanState:
+			/* The provider's children may sit in custom_ps too. */
+			ExecSquelchNode(outerPlanState(node));
+			ExecSquelchNode(innerPlanState(node));
+			foreach(lc, ((CustomScanState *) node)->custom_ps)
+				ExecSquelchNode((PlanState *) lfirst(lc));
+			break;
+
 			/*
 			 * Node types that need no special handling, just recurse to
 			 * children.
