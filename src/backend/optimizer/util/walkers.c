@@ -501,6 +501,19 @@ plan_tree_walker(Node *node,
 			 */
 			break;
 
+		case T_Integer:
+		case T_Float:
+		case T_String:
+		case T_BitString:
+		case T_Null:
+
+			/*
+			 * Value nodes, which a custom scan provider may keep in
+			 * custom_private. expression_tree_walker does not know them;
+			 * they contain nothing, so just succeed.
+			 */
+			break;
+
 		case T_ModifyTable:
 			if (walk_plan_node_fields((Plan *) node, walker, context))
 				return true;
