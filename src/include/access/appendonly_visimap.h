@@ -115,6 +115,12 @@ bool AppendOnlyVisimap_IsVisible(
 							AppendOnlyVisimap *visiMap,
 							AOTupleId *tupleId);
 
+bool AppendOnlyVisimap_AllVisible(
+							AppendOnlyVisimap *visiMap,
+							int segno,
+							int64 firstRowNum,
+							int64 lastRowNum);
+
 void AppendOnlyVisimap_Finish(
 						 AppendOnlyVisimap *visiMap,
 						 LOCKMODE lockmode);

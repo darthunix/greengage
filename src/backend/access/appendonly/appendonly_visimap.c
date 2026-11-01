@@ -221,6 +221,32 @@ AppendOnlyVisimap_IsVisible(
 }
 
 /*
+ * Whether every row from firstRowNum to lastRowNum of segment file segno
+ * is visible, known by one check: the entry of the first row covers the
+ * last one and has no row deleted. False means only that the rows must be
+ * checked one by one, as a batch reader does then.
+ *
+ * Assumes that the visibility has been initialized and not finished.
+ */
+bool
+AppendOnlyVisimap_AllVisible(
+							 AppendOnlyVisimap *visiMap,
+							 int segno,
+							 int64 firstRowNum,
+							 int64 lastRowNum)
+{
+	AOTupleId	first;
+	AOTupleId	last;
+
+	Assert(firstRowNum <= lastRowNum);
+	AOTupleIdInit(&first, segno, firstRowNum);
+	AOTupleIdInit(&last, segno, lastRowNum);
+	return AppendOnlyVisimap_IsVisible(visiMap, &first) &&
+		AppendOnlyVisimapEntry_CoversTuple(&visiMap->visimapEntry, &last) &&
+		bms_is_empty(visiMap->visimapEntry.bitmap);
+}
+
+/*
  * Stores the current visibility map entry information
  * in the relation either as update or delete.
  *

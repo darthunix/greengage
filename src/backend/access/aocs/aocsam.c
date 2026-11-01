@@ -1614,6 +1614,7 @@ aocs_getnext_batch(AOCSScanDesc scan, TupleDesc tupdesc, int maxrows,
 		bool		missing[MaxHeapAttributeNumber];
 		int64		first_row;
 		int			nrows = maxrows;
+		int			nvisible;
 		bool		segment_done = false;
 
 		if (open_next)
@@ -1709,7 +1710,10 @@ aocs_getnext_batch(AOCSScanDesc scan, TupleDesc tupdesc, int maxrows,
 		}
 
 		*visible = nrows == 64 ? ~UINT64CONST(0) : (UINT64CONST(1) << nrows) - 1;
-		if (!isSnapshotAny)
+		nvisible = nrows;
+		if (!isSnapshotAny &&
+			!AppendOnlyVisimap_AllVisible(&scan->visibilityMap, curseginfo->segno,
+										  first_row, first_row + nrows - 1))
 		{
 			for (int row = 0; row < nrows; row++)
 			{
@@ -1717,12 +1721,15 @@ aocs_getnext_batch(AOCSScanDesc scan, TupleDesc tupdesc, int maxrows,
 
 				AOTupleIdInit(&aoTupleId, curseginfo->segno, first_row + row);
 				if (!AppendOnlyVisimap_IsVisible(&scan->visibilityMap, &aoTupleId))
+				{
 					*visible &= ~(UINT64CONST(1) << row);
+					nvisible--;
+				}
 			}
 		}
 		/* As aoco_getnextslot counts the rows it returns. */
-		for (int row = 0; row < pg_popcount64(*visible); row++)
-			pgstat_count_heap_getnext(scan->rs_base.rs_rd);
+		if (scan->rs_base.rs_rd->pgstat_info != NULL)
+			scan->rs_base.rs_rd->pgstat_info->t_counts.t_tuples_returned += nvisible;
 		scan->segrowsprocessed += nrows;
 		return nrows;
 	}
