@@ -871,7 +871,9 @@ HasMemoryIntensiveCustomScanWalker(Node *node, CustomMemoryContext *context)
 
 /*
  * Whether the auto policy can assign the memory: the query's memory pays
- * the fixed share of every operator that is not memory intensive.
+ * the fixed share of every operator that is not memory intensive, and
+ * leaves every memory intensive one at least a kilobyte, a share of none
+ * being taken for no assignment at all (PlanStateOperatorMemKB).
  */
 static bool
 PolicyAutoFits(PlannedStmt *stmt, uint64 memAvailableBytes)
@@ -884,7 +886,13 @@ PolicyAutoFits(PlannedStmt *stmt, uint64 memAvailableBytes)
 	ctx.numNonMemIntensiveOperators = 0;
 	ctx.plannedStmt = stmt;
 	(void) PolicyAutoPrelimWalker((Node *) stmt->planTree, &ctx);
-	return ctx.queryMemKB > ctx.numNonMemIntensiveOperators * (*gp_resmanager_memory_policy_auto_fixed_mem);
+	{
+		uint64		fixedKB = ctx.numNonMemIntensiveOperators *
+			(*gp_resmanager_memory_policy_auto_fixed_mem);
+
+		return ctx.queryMemKB > fixedKB &&
+			ctx.queryMemKB - fixedKB >= ctx.numMemIntensiveOperators;
+	}
 }
 
 void
