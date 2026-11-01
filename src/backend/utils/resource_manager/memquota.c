@@ -849,10 +849,46 @@ PolicyEagerFreeAssignWalker(Node *node, PolicyEagerFreeContext *context)
  * This function considers not all memory-intensive operators will be active concurrently,
  * and distributes the memory accordingly.
  */
+/*
+ * Whether the plan has a custom scan that asked for memory of its own
+ * (CUSTOMPATH_GP_MEMORY_INTENSIVE).
+ */
+typedef struct CustomMemoryContext
+{
+	plan_tree_base_prefix base; /* Required prefix for plan_tree_walker/mutator */
+} CustomMemoryContext;
+
+static bool
+HasMemoryIntensiveCustomScanWalker(Node *node, CustomMemoryContext *context)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, CustomScan) &&
+		(((CustomScan *) node)->flags & CUSTOMPATH_GP_MEMORY_INTENSIVE) != 0)
+		return true;
+	return plan_tree_walker(node, HasMemoryIntensiveCustomScanWalker, context, true);
+}
+
 void
 PolicyEagerFreeAssignOperatorMemoryKB(PlannedStmt *stmt, uint64 memAvailableBytes)
 {
 	PolicyEagerFreeContext ctx;
+	CustomMemoryContext custom;
+
+	/*
+	 * Eager free lets the groups of operators that do not run at once reuse
+	 * one another's memory, knowing how long the core's blocking operators
+	 * keep theirs. A custom scan that asked for memory may keep it while its
+	 * children run, a hash join's table while it reads its outer side, which
+	 * the groups do not know: such a plan takes the auto policy, which gives
+	 * every memory intensive operator its share at once.
+	 */
+	exec_init_plan_tree_base(&custom.base, stmt);
+	if (HasMemoryIntensiveCustomScanWalker((Node *) stmt->planTree, &custom))
+	{
+		PolicyAutoAssignOperatorMemoryKB(stmt, memAvailableBytes);
+		return;
+	}
 	exec_init_plan_tree_base(&ctx.base, stmt);
 	ctx.groupTree = NULL;
 	ctx.groupNode = NULL;
