@@ -1626,6 +1626,13 @@ find_all_mat_nodes(PlanState *ps)
 		mat_nodes = list_concat(mat_nodes, find_all_mat_nodes(outerPlanState(ps)));
 	if (innerPlanState(ps))
 		mat_nodes = list_concat(mat_nodes, find_all_mat_nodes(innerPlanState(ps)));
+	/* A custom scan keeps its children in custom_ps. */
+	if (IsA(ps, CustomScanState))
+	{
+		foreach(lc, ((CustomScanState *) ps)->custom_ps)
+			mat_nodes = list_concat(mat_nodes,
+									find_all_mat_nodes((PlanState *) lfirst(lc)));
+	}
 	if (ps->subPlan)
 	{
 		foreach(lc, ps->subPlan)
