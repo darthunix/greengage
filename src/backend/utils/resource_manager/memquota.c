@@ -23,6 +23,7 @@
 #include "utils/resource_manager.h"
 #include "access/heapam.h"
 #include "miscadmin.h"
+#include "nodes/extensible.h"
 #include "cdb/cdbvars.h"
 #include "optimizer/clauses.h"
 #include "parser/parsetree.h"
@@ -264,6 +265,8 @@ IsMemoryIntensiveOperator(Node *node, PlannedStmt *stmt)
 				Result *res = (Result *) node;
 				return IsResultMemoryIntensive(res);
 			}
+		case T_CustomScan:
+			return (((CustomScan *) node)->flags & CUSTOMPATH_GP_MEMORY_INTENSIVE) != 0;
 		default:
 			return false;
 	}

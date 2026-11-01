@@ -101,6 +101,15 @@ extern const ExtensibleNodeMethods *GetExtensibleNodeMethods(const char *name,
 #define CUSTOMSCAN_GP_CHILDREN 1
 
 /*
+ * Greengage: the custom scan needs memory of its own, as a Hash or a Sort
+ * does. The resource manager gives such a scan a share of the query's
+ * memory (memquota.c), which it reads with PlanStateOperatorMemKB; a scan
+ * without the flag gets the small share of an operator that needs none.
+ * The flag passes from the path to the plan as the provider sets it.
+ */
+#define CUSTOMPATH_GP_MEMORY_INTENSIVE		0x00020000
+
+/*
  * Custom path methods.  Mostly, we just need to know how to convert a
  * CustomPath to a plan.
  */
