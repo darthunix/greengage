@@ -1254,6 +1254,23 @@ planstate_walk_kids(PlanState *planstate,
 			Assert(!planstate->lefttree && !planstate->righttree);
 			break;
 
+		case T_CustomScanState:
+			{
+				ListCell   *lc;
+
+				/* The trees, then the provider's children, as planstate_tree_walker. */
+				v = planstate_walk_node_extended(planstate->lefttree, walker, context, flags);
+				if (v == CdbVisit_Walk)
+					v = planstate_walk_node_extended(planstate->righttree, walker, context, flags);
+				foreach(lc, ((CustomScanState *) planstate)->custom_ps)
+				{
+					if (v != CdbVisit_Walk)
+						break;
+					v = planstate_walk_node_extended((PlanState *) lfirst(lc), walker, context, flags);
+				}
+				break;
+			}
+
 		default:
 			/* Left subtree */
 			v = planstate_walk_node_extended(planstate->lefttree, walker, context, flags);
