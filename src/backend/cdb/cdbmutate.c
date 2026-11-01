@@ -526,18 +526,20 @@ shareinput_walker(SHAREINPUT_MUTATOR f, Node *node, PlannerInfo *root)
 		else if (IsA(node, CustomScan))
 		{
 			CustomScan *cscan = (CustomScan *) node;
-			int			nplans = list_length(cscan->custom_plans);
+			List	   *children = cscan->custom_plans;
+			ListCell   *cell;
 
 			/* The trees, then the provider's children in their order of execution. */
 			shareinput_walker(f, (Node *) plan->lefttree, root);
 			shareinput_walker(f, (Node *) plan->righttree, root);
-			for (int i = 0; i < nplans; i++)
+			if (cscan->flags & CUSTOMPATH_GP_LAST_CHILD_FIRST)
 			{
-				int			index = (cscan->flags & CUSTOMPATH_GP_LAST_CHILD_FIRST) ?
-					nplans - 1 - i : i;
-
-				shareinput_walker(f, (Node *) list_nth(cscan->custom_plans, index), root);
+				children = NIL;
+				foreach(cell, cscan->custom_plans)
+					children = lcons(lfirst(cell), children);
 			}
+			foreach(cell, children)
+				shareinput_walker(f, (Node *) lfirst(cell), root);
 			shareinput_walker(f, (Node *) plan->initPlan, root);
 		}
 		else
