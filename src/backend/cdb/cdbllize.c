@@ -1576,6 +1576,26 @@ motion_sanity_walker(Node *node, sanity_result_t *result)
 				return true;
 			break;
 
+		case T_CustomScan:
+			{
+				ListCell   *lc;
+
+				/*
+				 * The provider's children are a List, which this walker
+				 * skips: each is walked here, so that their Motions count
+				 * above. The order in which the provider reads them is its
+				 * own, so the scan is not judged as a branch point.
+				 */
+				if (plan_tree_walker(node, motion_sanity_walker, result, true))
+					return true;
+				foreach(lc, ((CustomScan *) node)->custom_plans)
+				{
+					if (motion_sanity_walker((Node *) lfirst(lc), result))
+						return true;
+				}
+			}
+			break;
+
 		case T_Motion:
 			if (plan_tree_walker(node, motion_sanity_walker, result, true))
 				return true;
