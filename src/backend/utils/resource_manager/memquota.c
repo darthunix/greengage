@@ -869,6 +869,24 @@ HasMemoryIntensiveCustomScanWalker(Node *node, CustomMemoryContext *context)
 	return plan_tree_walker(node, HasMemoryIntensiveCustomScanWalker, context, true);
 }
 
+/*
+ * Whether the auto policy can assign the memory: the query's memory pays
+ * the fixed share of every operator that is not memory intensive.
+ */
+static bool
+PolicyAutoFits(PlannedStmt *stmt, uint64 memAvailableBytes)
+{
+	PolicyAutoContext ctx;
+
+	exec_init_plan_tree_base(&ctx.base, stmt);
+	ctx.queryMemKB = (uint64) (memAvailableBytes / 1024);
+	ctx.numMemIntensiveOperators = 0;
+	ctx.numNonMemIntensiveOperators = 0;
+	ctx.plannedStmt = stmt;
+	(void) PolicyAutoPrelimWalker((Node *) stmt->planTree, &ctx);
+	return ctx.queryMemKB > ctx.numNonMemIntensiveOperators * (*gp_resmanager_memory_policy_auto_fixed_mem);
+}
+
 void
 PolicyEagerFreeAssignOperatorMemoryKB(PlannedStmt *stmt, uint64 memAvailableBytes)
 {
@@ -881,10 +899,13 @@ PolicyEagerFreeAssignOperatorMemoryKB(PlannedStmt *stmt, uint64 memAvailableByte
 	 * keep theirs. A custom scan that asked for memory may keep it while its
 	 * children run, a hash join's table while it reads its outer side, which
 	 * the groups do not know: such a plan takes the auto policy, which gives
-	 * every memory intensive operator its share at once.
+	 * every memory intensive operator its share at once. Where the query's
+	 * memory cannot pay every operator's fixed share at once, which the auto
+	 * policy refuses, eager free assigns it as before.
 	 */
 	exec_init_plan_tree_base(&custom.base, stmt);
-	if (HasMemoryIntensiveCustomScanWalker((Node *) stmt->planTree, &custom))
+	if (HasMemoryIntensiveCustomScanWalker((Node *) stmt->planTree, &custom) &&
+		PolicyAutoFits(stmt, memAvailableBytes))
 	{
 		PolicyAutoAssignOperatorMemoryKB(stmt, memAvailableBytes);
 		return;
