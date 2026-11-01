@@ -6695,7 +6695,13 @@ parse_real(const char *value, double *result, int flags, const char **hintmsg)
 	errno = 0;
 	val = strtod(value, &endptr);
 
-	if (endptr == value || errno == ERANGE)
+	/*
+	 * Some platforms return ERANGE for a denormalized number, which a
+	 * segment receives from %.17g as the value it was: as float8in does,
+	 * only zero or a huge result is out of range.
+	 */
+	if (endptr == value ||
+		(errno == ERANGE && (val == 0.0 || val >= HUGE_VAL || val <= -HUGE_VAL)))
 		return false;			/* no HINT for these cases */
 
 	/* reject NaN (infinities will fail range checks later) */
