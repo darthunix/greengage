@@ -1564,6 +1564,55 @@ aocs_column_has_row(AOCSScanDesc scan, AttrNumber attno)
 }
 
 /*
+ * The next nrows values of a column's stream, read at once where its block
+ * keeps them one after another: a fixed width passed by value, no NULL, no
+ * RLE or delta encoding, no large object, and the rows within the block.
+ * The reader is left where advancing and getting row by row would leave
+ * it, at the last value read. False, nothing read, otherwise.
+ */
+static bool
+aocs_read_dense(DatumStreamRead *ds, int nrows, Datum *d, bool *null)
+{
+	DatumStreamBlockRead *dsr = &ds->blockRead;
+	int			len = dsr->typeInfo.datumlen;
+	uint8	   *first;
+
+	if (ds->largeObjectState != DatumStreamLargeObjectState_None ||
+		!dsr->typeInfo.byval || dsr->has_null ||
+		(dsr->datumStreamVersion != DatumStreamVersion_Original &&
+		 (dsr->rle_block_was_compressed || dsr->delta_block_was_compressed)) ||
+		(len != 1 && len != 2 && len != 4 && len != 8) ||
+		nrows <= 0 || dsr->nth + nrows >= dsr->logical_row_count)
+		return false;
+	/* The block's first value is where the read left the pointer, the others past the current one. */
+	first = dsr->datump + (dsr->physical_datum_index >= 0 ? len : 0);
+	switch (len)
+	{
+		case 1:
+			for (int row = 0; row < nrows; row++)
+				d[row] = *(uint8 *) (first + row);
+			break;
+		case 2:
+			for (int row = 0; row < nrows; row++)
+				d[row] = *(uint16 *) (first + row * 2);
+			break;
+		case 4:
+			for (int row = 0; row < nrows; row++)
+				d[row] = *(uint32 *) (first + row * 4);
+			break;
+		default:
+			for (int row = 0; row < nrows; row++)
+				d[row] = *(Datum *) (first + row * 8);
+			break;
+	}
+	memset(null, 0, sizeof(bool) * nrows);
+	dsr->datump = first + (nrows - 1) * len;
+	dsr->physical_datum_index += nrows;
+	dsr->nth += nrows;
+	return true;
+}
+
+/*
  * aocs_getnext_batch
  *
  * The next rows of a forward scan column by column, without a tuple slot:
@@ -1698,6 +1747,8 @@ aocs_getnext_batch(AOCSScanDesc scan, TupleDesc tupdesc, int maxrows,
 				}
 				continue;
 			}
+			if (aocs_read_dense(scan->columnScanInfo.ds[attno], nrows, d, null))
+				continue;
 			for (int row = 0; row < nrows; row++)
 			{
 				DatumStreamRead *ds = scan->columnScanInfo.ds[attno];
