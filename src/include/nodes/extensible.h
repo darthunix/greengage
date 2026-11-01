@@ -82,6 +82,15 @@ extern const ExtensibleNodeMethods *GetExtensibleNodeMethods(const char *name,
 #define CUSTOMPATH_SUPPORT_MARK_RESTORE		0x0002
 
 /*
+ * Greengage: the scan executes its custom_plans from the last to the
+ * first, as a hash join builds its inner side before it reads the outer
+ * one. Without it, they execute in list order. Walks that must follow
+ * the order of execution, such as the one that assigns the producers of
+ * shared scans, visit the children so.
+ */
+#define CUSTOMPATH_GP_LAST_CHILD_FIRST		0x00010000
+
+/*
  * Custom path methods.  Mostly, we just need to know how to convert a
  * CustomPath to a plan.
  */

@@ -29,6 +29,7 @@
 #include "optimizer/clauses.h"
 #include "optimizer/optimizer.h"
 #include "optimizer/pathnode.h"
+#include "nodes/extensible.h"
 #include "nodes/makefuncs.h"
 
 #include "commands/tablecmds.h"
@@ -521,6 +522,23 @@ shareinput_walker(SHAREINPUT_MUTATOR f, Node *node, PlannerInfo *root)
 			{
 				shareinput_walker(f, (Node *) lfirst(cell), root);
 			}
+		}
+		else if (IsA(node, CustomScan))
+		{
+			CustomScan *cscan = (CustomScan *) node;
+			int			nplans = list_length(cscan->custom_plans);
+
+			/* The trees, then the provider's children in their order of execution. */
+			shareinput_walker(f, (Node *) plan->lefttree, root);
+			shareinput_walker(f, (Node *) plan->righttree, root);
+			for (int i = 0; i < nplans; i++)
+			{
+				int			index = (cscan->flags & CUSTOMPATH_GP_LAST_CHILD_FIRST) ?
+					nplans - 1 - i : i;
+
+				shareinput_walker(f, (Node *) list_nth(cscan->custom_plans, index), root);
+			}
+			shareinput_walker(f, (Node *) plan->initPlan, root);
 		}
 		else
 		{
