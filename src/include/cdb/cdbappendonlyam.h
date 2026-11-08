@@ -594,6 +594,11 @@ extern void appendonly_rescan(TableScanDesc scan, ScanKey key,
 								bool allow_sync, bool allow_pagemode);
 extern void appendonly_endscan(TableScanDesc scan);
 extern bool appendonly_scan_next_block(AppendOnlyScanDesc scan);
+/*
+ * appendonly_scan_next_block and the inline readers of a block's tuples
+ * exist, for an extension that reads ao_row tables itself and tests for them.
+ */
+#define APPENDONLY_SCAN_PRIMITIVES 1
 extern bool appendonly_getnextslot(TableScanDesc scan,
 								   ScanDirection direction,
 								   TupleTableSlot *slot);
