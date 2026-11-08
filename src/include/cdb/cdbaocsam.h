@@ -428,6 +428,11 @@ extern void aocs_endscan(AOCSScanDesc scan);
 
 extern bool aocs_getnext(AOCSScanDesc scan, ScanDirection direction, TupleTableSlot *slot);
 extern bool aocs_scan_next_seg(AOCSScanDesc scan);
+/*
+ * aocs_scan_next_seg and the inline readers of a column's block exist, for
+ * an extension that reads ao_column tables itself and tests for them.
+ */
+#define AOCS_SCAN_PRIMITIVES 1
 extern AOCSInsertDesc aocs_insert_init(Relation rel, int segno, int64 num_rows);
 extern void aocs_insert_values(AOCSInsertDesc idesc, Datum *d, bool *null, AOTupleId *aoTupleId);
 static inline void aocs_insert(AOCSInsertDesc idesc, TupleTableSlot *slot)
