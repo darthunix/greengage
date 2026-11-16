@@ -20,6 +20,7 @@
 struct CdbDispatchResults;              /* #include "cdb/cdbdispatchresult.h" */
 struct PlanState;                       /* #include "nodes/execnodes.h" */
 struct QueryDesc;                       /* #include "executor/execdesc.h" */
+struct StringInfoData;                  /* #include "lib/stringinfo.h" */
 
 struct CdbExplain_ShowStatCtx;          /* private, in "cdb/cdbexplain.c" */
 
@@ -81,6 +82,44 @@ cdbexplain_agg_avg(CdbExplain_Agg *agg)
 void
 cdbexplain_localExecStats(struct PlanState                 *planstate,
                           struct CdbExplain_ShowStatCtx    *showstatctx);
+
+/*
+ * Hooks for extensions to send statistics of their own from each qExec to
+ * the qDisp, with the EXPLAIN ANALYZE statistics of the qExec's slice.
+ *
+ * On a qExec, cdbexplain_send_hook runs while the statistics of its slice
+ * are written, at the end of the executor.  It adds its data to buf with
+ * cdbexplain_appendExtensionData, under a name that tells it from the data
+ * of other extensions.
+ *
+ * On the qDisp, cdbexplain_recv_hook runs where the qDisp takes in the
+ * statistics of a slice, for the main plan and for each initplan
+ * dispatched on its own: for each qExec's message once with name NULL,
+ * data NULL and len 0, so that an extension can tell a qExec that sent
+ * nothing of its own, then once for each piece of data the qExec sent.
+ * showstatctx is
+ * that of the statement, queryDesc->showstatctx, which EXPLAIN sets before
+ * ExecutorStart and which lives as long as the QueryDesc; sliceIndex,
+ * segindex and qe_identifier are those of the qExec, segindex -1 for one
+ * on the coordinator.  The data is not aligned and lives only during the
+ * call.
+ *
+ * Each hook calls the one it replaced, if any.
+ */
+typedef void (*cdbexplain_send_hook_type) (struct QueryDesc *queryDesc,
+										   struct StringInfoData *buf);
+extern PGDLLIMPORT cdbexplain_send_hook_type cdbexplain_send_hook;
+
+typedef void (*cdbexplain_recv_hook_type) (struct CdbExplain_ShowStatCtx *showstatctx,
+										   int sliceIndex, int segindex,
+										   int qe_identifier,
+										   const char *name,
+										   const char *data, int len);
+extern PGDLLIMPORT cdbexplain_recv_hook_type cdbexplain_recv_hook;
+
+extern void cdbexplain_appendExtensionData(struct StringInfoData *buf,
+										   const char *name,
+										   const void *data, int len);
 
 /*
  * cdbexplain_sendExecStats
