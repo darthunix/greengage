@@ -214,6 +214,16 @@ $(call recurse,installcheck-world, $(ICW_TARGETS),installcheck)
 $(call recurse,installcheck-world, \
 			   src/test/ssl,check)
 
+# GPDB: src/test neither installs the test modules nor runs their tests
+# (src/test/Makefile). test_explain_hooks checks the hooks of EXPLAIN
+# against the cluster, so install it and then run its tests here: two
+# steps of one recipe, since two goals of one make may overlap under -j.
+installcheck-world: installcheck-test_explain_hooks
+.PHONY: installcheck-test_explain_hooks
+installcheck-test_explain_hooks:
+	$(MAKE) -C src/test/modules/test_explain_hooks install
+	$(MAKE) -C src/test/modules/test_explain_hooks installcheck
+
 .PHONY: installcheck-mirrorless
 installcheck-mirrorless: submake-generated-headers
 	$(MAKE) -C src/test/regress installcheck-mirrorless
