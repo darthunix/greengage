@@ -216,9 +216,10 @@ $(call recurse,installcheck-world, \
 
 # GPDB: src/test neither installs the test modules nor runs their tests
 # (src/test/Makefile). test_custom_scan checks custom scans against the
-# cluster, so install it and run its tests here.
+# cluster and test_ao_scan reads append-only tables on it, so install them
+# and run their tests here.
 $(call recurse,installcheck-world, \
-			   src/test/modules/test_custom_scan,install installcheck)
+			   src/test/modules/test_custom_scan src/test/modules/test_ao_scan,install installcheck)
 
 .PHONY: installcheck-mirrorless
 installcheck-mirrorless: submake-generated-headers

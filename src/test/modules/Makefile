@@ -9,6 +9,7 @@ SUBDIRS = \
 		  commit_ts \
 		  dummy_seclabel \
 		  snapshot_too_old \
+		  test_ao_scan \
 		  test_bloomfilter \
 		  test_custom_scan \
 		  test_ddl_deparse \
