@@ -247,6 +247,19 @@ IsCustomScanMemoryIntensive(Node *node)
 		(((CustomScan *) node)->flags & CUSTOMPATH_GP_MEMORY_INTENSIVE) != 0;
 }
 
+/*
+ * Is a node a custom scan whose memory overlaps that of the operators under
+ * it?
+ */
+static inline bool
+CustomScanMemoryOverlapsChildren(Node *node)
+{
+	return IsA(node, CustomScan) &&
+		(((CustomScan *) node)->flags &
+		 CUSTOMPATH_GP_MEMORY_OVERLAPS_CHILDREN) ==
+		CUSTOMPATH_GP_MEMORY_OVERLAPS_CHILDREN;
+}
+
 /**
  * Is an operator memory intensive?
  */
@@ -731,12 +744,12 @@ PolicyEagerFreePrelimWalker(Node *node, PolicyEagerFreeContext *context)
 		}
 
 		/*
-		 * A custom scan that asked for memory may keep it while its children
-		 * run, as a hash join keeps its Hash's table while it reads its
-		 * outer side. Like the Hash, it gets a group of its own beside the
-		 * groups of its children, which share the memory with it.
+		 * A custom scan whose memory overlaps that of the operators under it,
+		 * as the table of a hash join, kept in its Hash, overlaps the reading
+		 * of its outer side, gets a group of its own beside the groups of its
+		 * children, as the Hash does, so that they split the memory.
 		 */
-		if (IsCustomScanMemoryIntensive(node))
+		if (CustomScanMemoryOverlapsChildren(node))
 		{
 			OperatorGroupNode *own = CreateOperatorGroupNode(context->nextGroupId++,
 															  context->groupNode);
@@ -851,11 +864,11 @@ PolicyEagerFreeAssignWalker(Node *node, PolicyEagerFreeContext *context)
 			}
 
 			/*
-			 * A custom scan that asked for memory gets at most the memory of
-			 * its own group, which the prelim walk made beside its
-			 * children's.
+			 * A custom scan whose memory overlaps that of the operators under
+			 * it gets at most the memory of its own group, which the prelim
+			 * walk made beside its children's.
 			 */
-			if (IsCustomScanMemoryIntensive(node))
+			if (CustomScanMemoryOverlapsChildren(node))
 			{
 				ListCell   *lc;
 				OperatorGroupNode *own = NULL;

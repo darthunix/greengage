@@ -165,6 +165,30 @@ extern const ExtensibleNodeMethods *GetExtensibleNodeMethods(const char *name,
 #define CUSTOMPATH_GP_MEMORY_INTENSIVE		0x00020000
 
 /*
+ * Greengage: the custom scan needs its memory at the same time as the
+ * operators under it, not after them: it takes the memory before one of
+ * its children has returned its rows. So does a scan that builds a table
+ * from one child and keeps it while it reads the next, as a hash join
+ * keeps the table of its inner side while it reads its outer side, and a
+ * scan that takes its memory when it starts. The flag holds the bit of
+ * CUSTOMPATH_GP_MEMORY_INTENSIVE, so a provider sets only one of the two,
+ * and a test of CUSTOMPATH_GP_MEMORY_INTENSIVE finds a scan with either.
+ * Test this flag as (flags & CUSTOMPATH_GP_MEMORY_OVERLAPS_CHILDREN) ==
+ * CUSTOMPATH_GP_MEMORY_OVERLAPS_CHILDREN.
+ *
+ * Eager free counts a scan with CUSTOMPATH_GP_MEMORY_INTENSIVE alone as it
+ * counts an Agg: the scan takes memory only once rows reach it, when the
+ * blocking operators under it, such as a Sort, have read their input and
+ * the operators under those have released their memory. So the scan and
+ * those operators get the same memory, which they use in turn. A scan
+ * with this flag gets a share of its own beside the operators under it
+ * instead, as a Hash does beside the outer side of its join, and they
+ * split the memory.
+ */
+#define CUSTOMPATH_GP_MEMORY_OVERLAPS_CHILDREN \
+	(CUSTOMPATH_GP_MEMORY_INTENSIVE | 0x00040000)
+
+/*
  * Custom path methods.  Mostly, we just need to know how to convert a
  * CustomPath to a plan.
  */
